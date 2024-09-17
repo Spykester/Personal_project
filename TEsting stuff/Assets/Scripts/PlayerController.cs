@@ -9,8 +9,12 @@ public class PlayerController : MonoBehaviour
 
     Vector2 camRotation;
 
-    public float speed = 10f;
+    [Header("Movement stats")]
+    public bool sprinting = false;
+    public float speed = 5f;
+    public float sprintMult = 1.5f;
     public float jumpHeight = 5f;
+    public float groundDetection = 1f;
 
     public float mouseSensitivity = 2.0f;
     public float xsensitivity = 2.0f;
@@ -32,21 +36,28 @@ public class PlayerController : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+        //camera movement. LOOK WITH THEM EYEBALLS
         camRotation.x += Input.GetAxisRaw("Mouse X") * mouseSensitivity;
         camRotation.y += Input.GetAxisRaw("Mouse Y") * mouseSensitivity;
-        camRotation.y = Mathf.Clamp(camRotation.y, -90, 90);
+        camRotation.y = Mathf.Clamp(camRotation.y, -75, 75);
 
         playerCam.transform.localRotation = Quaternion.AngleAxis(camRotation.y, Vector3.left);
         transform.localRotation = Quaternion.AngleAxis(camRotation.x, Vector3.up);
-       
 
-
-
+        //sprinting mechanics
         Vector3 temp = myRB.velocity;
+        temp.x = Input.GetAxisRaw("Horizontal") * speed;
+        temp.z = Input.GetAxisRaw("Vertical") * speed;
+
+        if (sprinting)
+            temp.z *= sprintMult;
+
+        if (!sprinting && Input.GetKey(KeyCode.LeftShift))
+            sprinting = true;
 
         temp.z = Input.GetAxisRaw("Horizontal") * speed;
         temp.x = Input.GetAxisRaw("Vertical") * speed;
-        if (Input.GetKeyDown(KeyCode.Space))
+        if (Input.GetKeyDown(KeyCode.Space) && Physics.Raycast(transform.position, -transform.up, groundDetection))
             temp.y = jumpHeight;
 
         myRB.velocity = (transform.forward * temp.x) + (transform.right * temp.z) + (transform.up * temp.y);
