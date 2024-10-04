@@ -1,220 +1,152 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.SceneManagement;
+using TMPro;
+
+public class PlayerCam : MonoBehaviour
+{
+    public float sensX;
+    public float sensY;
+
+        public Transform orientation;
+
+    float xRotation;
+    float yRotation;
+
+    public void Start()
+    {
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+    }
+
+    private void Update()
+    {
+        //get mouse input
+        float mouseX = Input.GetAxisRaw("Mouse X") * Time.deltaTime * sensX;
+        float mouseY = Input.GetAxisRaw("Mouse Y") * Time.deltaTime * sensY;
+
+        yRotation += mouseX;
+
+        xRotation -= mouseY;
+        xRotation = Mathf.Clamp(xRotation, -90f, 90f);
+
+        // rotate cam and orientation
+        transform.rotation = Quaternion.Euler(xRotation, yRotation, 0);
+        orientation.rotation = Quaternion.Euler(0, yRotation, 0);
+    }
+}
+
 public class PlayerController : MonoBehaviour
 {
-    GameManager gm;
+    [Header("Movement")]
+    public float moveSpeed;
 
-    Rigidbody myRB;
-    Camera playerCam;
+    public float groundDrag;
 
-    Transform cameraHolder;
+    public float jumpForce;
+    public float jumpCooldown;
+    public float airMultiplier;
+    bool readyToJump;
 
-    Vector2 camRotation;
+    [HideInInspector] public float walkSpeed;
+    [HideInInspector] public float sprintSpeed;
 
-    [Header("Player Stats")]
-    public bool takenDamage = false;
-    public float damageCooldownTimer = .5f;
-    public int health = 5;
-    public int maxHealth = 10;
-    public int healtPickupAmt = 5;
+    [Header("Keybinds")]
+    public KeyCode jumpKey = KeyCode.Space;
 
-    [Header("Weapon Stats")]
-    public Transform weaponSlot;
-    public GameObject shot;
-    public float shotVel = 0;
-    public int weaponID = -1;
-    public int fireMode = 0;
-    public float fireRate = 0;
-    public float currentClip = 0;
-    public float clipSize = 0;
-    public float maxAmmo = 0;
-    public float currentAmmo = 0;
-    public float reloadAmt = 0;
-    public float bulletLifespan = 0;
-    public bool canFire = true;
+    [Header("Ground Check")]
+    public float playerHeight;
+    public LayerMask whatIsGround;
+    bool grounded;
 
+    public Transform orientation;
 
-    [Header("Movement Stats")]
-    public bool sprinting = false;
-    public float speed = 2f;
-    public float sprintMult = 5f;
-    public float jumpHeight = 5f;
-    public float groundDetection = 1f;
+    float horizontalInput;
+    float verticalInput;
 
-    [Header("User Settings")]
-    public bool sprintToggle = false;
-    public float mouseSensitivity = 2.0f;
-    public float Xsensitivity = 2.0f;
-    public float Ysensitivity = 2.0f;
-    public float camRotationLimit = 90f;
+    Vector3 moveDirection;
 
-    // Start is called before the first frame update
-    void Start()
+    Rigidbody rb;
+
+    private void Start()
     {
-        gm=GameObject.Find("GameManager").GetComponent<GameManager>();
-        // Initialized components
-        myRB = GetComponent<Rigidbody>();
-        playerCam = Camera.main;
-        cameraHolder = transform.GetChild(0);
+        rb = GetComponent<Rigidbody>();
+        rb.freezeRotation = true;
 
-        // Camera setup
-        camRotation = Vector2.zero;
-        Cursor.visible = false;
-        Cursor.lockState = CursorLockMode.Locked;
-
+        readyToJump = true;
     }
 
-    // Update is called once per frame
-    void Update()
+    private void Update()
     {
-        if (!gm.isPaused)
-        {
-            // FPS Camera Rotation
-            camRotation.x += Input.GetAxisRaw("Mouse X") * mouseSensitivity;
-            camRotation.y += Input.GetAxisRaw("Mouse Y") * mouseSensitivity;
+        // ground check
+        grounded = Physics.Raycast(transform.position, Vector3.down, playerHeight * 0.5f + 0.3f, whatIsGround);
 
-            // Limit vertical rotation
-            camRotation.y = Mathf.Clamp(camRotation.y, -camRotationLimit, camRotationLimit);
+        MyInput();
+        SpeedControl();
 
-            playerCam.transform.position = cameraHolder.position;
-
-            // Set camera rotation on the vertical axis | Set player rotation on horizontal axis
-            playerCam.transform.rotation = Quaternion.Euler(-camRotation.y, camRotation.x, 0);
-            transform.localRotation = Quaternion.AngleAxis(camRotation.x, Vector3.up);
-
-            if (Input.GetMouseButton(0) && canFire && currentClip > 0 && weaponID >= 0)
-            {
-                GameObject s = Instantiate(shot, weaponSlot.position, weaponSlot.rotation);
-                s.GetComponent<Rigidbody>().AddForce(playerCam.transform.forward * shotVel);
-                Destroy(s, bulletLifespan);
-
-                canFire = false;
-                currentClip--;
-                StartCoroutine("cooldownFire");
-            }
-
-            if (Input.GetKeyDown(KeyCode.R))
-                reloadClip();
-
-
-            // Sprint turn on for toggle & not toggle
-            if ((!sprinting) && ((!sprintToggle && Input.GetKey(KeyCode.LeftShift)) || (sprintToggle && Input.GetKey(KeyCode.LeftShift) && (Input.GetAxisRaw("Vertical") > 0))))
-                sprinting = true;
-
-
-            // Movement math calculation velocity measured by input * speed
-            Vector3 temp = myRB.velocity;
-
-            temp.x = Input.GetAxisRaw("Horizontal") * speed;
-            temp.z = Input.GetAxisRaw("Vertical") * speed;
-
-            // If sprinting, check to see if disable condition flags (also amplify speed if sprinting)
-            if (sprinting)
-            {
-                temp.z *= sprintMult;
-
-                if ((sprintToggle && (Input.GetAxisRaw("Vertical") <= 0)) || (!sprintToggle && Input.GetKeyUp(KeyCode.LeftShift)))
-                    sprinting = false;
-            }
-
-            // Jump
-            if (Input.GetKeyDown(KeyCode.Space) && Physics.Raycast(transform.position, -transform.up, groundDetection))
-                temp.y = jumpHeight;
-
-            // Give calculated velocity back to rigidbody
-            myRB.velocity = (transform.forward * temp.z) + (transform.right * temp.x) + (transform.up * temp.y);
-        }
-    }
-    private void OnCollisionEnter(Collision collision)
-    {
-        if((collision.gameObject.tag == "healthPickup") && health < maxHealth)
-        {
-            if (health + healtPickupAmt > maxHealth)
-                health = maxHealth;
-
-            else
-                health += healtPickupAmt;
-
-            Destroy(collision.gameObject);
-        }
-
-        if ((collision.gameObject.tag == "ammoPickup") && currentAmmo < maxAmmo)
-        {
-            if (currentAmmo + reloadAmt > maxAmmo)
-                currentAmmo = maxAmmo;
-
-            else
-                currentAmmo += reloadAmt;
-
-            Destroy(collision.gameObject);
-        }
-    }
-
-    private void OnTriggerEnter(Collider other)
-    {
-        if(other.gameObject.tag == "weapon")
-        {
-            other.transform.SetPositionAndRotation(weaponSlot.position, weaponSlot.rotation);
-
-            other.transform.SetParent(weaponSlot);
-
-            switch(other.gameObject.name)
-            {
-                case "weapon1":
-                    weaponID = 0;
-                    shotVel = 10000;
-                    fireMode = 0;
-                    fireRate = 0.1f;
-                    currentClip = 20;
-                    clipSize = 20;
-                    maxAmmo = 400;
-                    currentAmmo = 200;
-                    reloadAmt = 20;
-                    bulletLifespan = .5f;
-                    break;
-
-                default:
-                    break;
-            }
-        }
-    }
-
-    public void reloadClip()
-    {
-        if (currentClip >= clipSize)
-            return;
-
+        // handle drag
+        if (grounded)
+            rb.drag = groundDrag;
         else
+            rb.drag = 0;
+    }
+
+    private void FixedUpdate()
+    {
+        MovePlayer();
+    }
+
+    private void MyInput()
+    {
+        horizontalInput = Input.GetAxisRaw("Horizontal");
+        verticalInput = Input.GetAxisRaw("Vertical");
+
+        // when to jump
+        if(Input.GetKey(jumpKey) && readyToJump && grounded)
         {
-            float reloadCount = clipSize - currentClip;
+            readyToJump = false;
 
-            if (currentAmmo < reloadCount)
-            {
-                currentClip += currentAmmo;
-                currentAmmo = 0;
-                return;
-            }
+            Jump();
 
-            else
-            {
-                currentClip += reloadCount;
-                currentAmmo -= reloadCount;
-                return;
-            }
+            Invoke(nameof(ResetJump), jumpCooldown);
         }
     }
 
-    IEnumerator cooldownFire()
+    private void MovePlayer()
     {
-        yield return new WaitForSeconds(fireRate);
-        canFire = true;
+        // calculate movement direction
+        moveDirection = orientation.forward * verticalInput + orientation.right * horizontalInput;
+
+        // on ground
+        if(grounded)
+            rb.AddForce(moveDirection.normalized * moveSpeed * 10f, ForceMode.Force);
+
+        // in air
+        else if(!grounded)
+            rb.AddForce(moveDirection.normalized * moveSpeed * 10f * airMultiplier, ForceMode.Force);
     }
 
-    public IEnumerator cooldownDamage()
+    private void SpeedControl()
     {
-        yield return new WaitForSeconds(damageCooldownTimer);
-        takenDamage = false;
+        Vector3 flatVel = new Vector3(rb.velocity.x, 0f, rb.velocity.z);
+
+        // limit velocity if needed
+        if(flatVel.magnitude > moveSpeed)
+        {
+            Vector3 limitedVel = flatVel.normalized * moveSpeed;
+            rb.velocity = new Vector3(limitedVel.x, rb.velocity.y, limitedVel.z);
+        }
+    }
+
+    private void Jump()
+    {
+        // reset y velocity
+        rb.velocity = new Vector3(rb.velocity.x, 0f, rb.velocity.z);
+
+        rb.AddForce(transform.up * jumpForce, ForceMode.Impulse);
+    }
+    private void ResetJump()
+    {
+        readyToJump = true;
     }
 }
